@@ -1,0 +1,605 @@
+
+<!DOCTYPE html>
+<html>
+    <head>
+		<title>Self-Mapping Data Centers</title>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+	    <meta name="description" content="3D visual for a data center">
+		<meta name="author" content="Tim Wang">
+		<style>
+			table{
+				border-collapse: collapse;
+    			width: 100%;
+			}
+			th {
+				padding: 15px;
+  				text-align: left;
+				font-weight: bold;
+   				background-color: #32496d;
+   				color: rgb(255, 255, 255);
+			}
+			td {
+  				padding: 15px;
+  				text-align: left;
+			}
+			tr:nth-child(even){background-color: #f2f2f2}
+				
+			#overlay {
+				display: none;
+				position: absolute;
+				top: 0;
+				left: 0;
+				background: #999;
+				width: 100%;
+				height: 100%;
+				opacity: 0.8;
+				z-index: 100;
+			}
+			#popup {
+				display: none;
+				position: absolute;
+				top: 50%;
+				left: 50%;
+				background: #fff;
+				width: 500px;
+				height: 500px;
+				margin-left: -250px; /*Half the value of width to center div*/
+				margin-top: -250px; /*Half the value of height to center div*/
+				z-index: 200;
+			}
+			#spreadsheet{
+				display: none;
+				position: absolute;
+				top: 0%;
+				left: 0%;
+				background: #fff;
+				width: 500px;
+				height: 500px;
+				z-index: 200;
+			}
+			#spreadsheetclose {
+				float: right;
+				padding: 10px;
+				cursor: pointer;
+			}
+			#popupclose {
+				float: right;
+				padding: 10px;
+				cursor: pointer;
+			}
+			.popupcontent {
+				padding: 10px;
+			}
+			#button {
+				cursor: pointer;
+			}
+			tab { 
+				padding-left: 2em; 
+			}
+			</style>
+	</head>
+	
+    <body>
+		<script src="js/lib/jquery-3.3.1.min.js"></script>
+		<script src="js/lib/THREEx.KeyboardState.js"></script>
+		<script src="js/lib/THREEx.FullScreen.js"></script>
+		<script src="js/lib/THREEx.WindowResize.js"></script>
+        <script src="js/lib/three.js"></script>
+		<script src="js/lib/Detector.js"></script>
+		<script src="js/lib/stats.min.js"></script>
+		<script src="js/lib/dat.gui.min.js"></script>
+		<script src="js/lib/OrbitControls.js"></script>
+		<script src="js/lib/Projector.js"></script>
+		<script src="js/lib/CanvasRenderer.js"></script>
+		<script src="http://code.jquery.com/jquery-1.8.2.js"></script>
+        <script src="http://code.jquery.com/ui/1.9.0/jquery-ui.js"></script>
+        <script src="js/lib/jquery-csv.js"></script>
+
+		<div id="ThreeJS" style="z-index: 1; position: absolute; left:0px; top:0px"></div>
+		<!-- Popup Window -->
+		<div id="overlay"></div>
+		<div id="popup">
+			<div class="popupcontrols">
+				<span id="popupclose">X</span>
+			</div>
+			<div class="popupcontent" id="popupText">
+			</div>
+		</div>
+
+		<div id="overlay"></div>
+		<div id="spreadsheet">
+			<div class="popupcontrols">
+				<span id="spreadsheetclose">X</span>
+			</div>
+			<div class="popupcontent" id="spreadsheetTable">
+				<table id="myTable">
+					<tr>
+						<th>ID</th>
+						<th>X</th>
+						<th>Y</th>
+						<th>Z</th>
+						<th>RackID</th>
+					</tr>
+				</table>
+			</div>
+		</div>
+     
+       <div id="ThreeJS" style="z-index: 1; position: absolute; left:0px; top:0px"></div>
+       <script>
+		   	//Getting data from csv
+			var rackData;
+
+			$.ajax({
+                url: "./data/rackLocations.csv",  //This is the csv file to specify
+                async: false,
+                success: function (csvd) {
+                    csvData = $.csv.toObjects(csvd);
+                },
+                dataType: "text",
+                complete: function () {
+                    //Put any method here to use the data from the specified csv. 
+                    getRackData(csvData);
+                }
+            });
+
+			function getRackData(csvData) {
+				rackData = csvData;
+			}
+
+			var tagData;
+
+			$.ajax({
+                url: "./data/tagLocations.csv",  //This is the csv file to specify
+                async: false,
+                success: function (csvd) {
+                    csvData = $.csv.toObjects(csvd);
+                },
+                dataType: "text",
+                complete: function () {
+                    //Put any method here to use the data from the specified csv. 
+                    getTagData(csvData);
+                }
+            });
+
+			function getTagData(csvData) {
+				tagData = csvData;
+			}
+
+			//GET TAGS IN RACKS
+			var racks = new Array(rackData.length);
+			for (var i = 0; i < racks.length; i++) {
+				racks[i] = new Array();
+			}
+
+			for (var j = 0; j < tagData.length; j++) {
+				var id = parseInt(tagData[j].RackID);
+				var rack = racks[id];
+				rack.push(tagData[j].ID);
+			}
+
+			// Popup Window //
+			var closePopup = document.getElementById("popupclose");
+			var overlay = document.getElementById("overlay");
+			var popup = document.getElementById("popup");
+			var spreadsheet = document.getElementById("spreadsheet");
+			var closeSpreadsheet = document.getElementById("spreadsheetclose");
+			// Close Popup Event
+			closePopup.onclick = function() {
+				overlay.style.display = 'none';
+				popup.style.display = 'none';
+			};
+			closeSpreadsheet .onclick = function() {
+				overlay.style.display = 'none';
+				spreadsheet.style.display = 'none';
+				
+			};
+
+			///// Main /////
+			// standard global variables
+			var container, scene, camera, renderer, controls;
+
+			var clock = new THREE.Clock();
+
+			// custom global variables
+			var gui, parameters;
+
+			var cube;
+			var raycaster, gui; 
+			var INTERSECTED;
+			var mouse;
+			var objects = [];
+
+			init();
+			animate();
+
+			// FUNCTIONS 		
+			function init() 
+			{
+				parameters = {Spreadsheet: function(){
+								var table = document.getElementById("myTable");
+								for(var i = 0; i < tagData.length;i++){
+									var row = table.insertRow(i+1);
+									var cell1 = row.insertCell(0);
+									var cell2 = row.insertCell(1);
+									var cell3 = row.insertCell(2);
+									var cell4 = row.insertCell(3);
+									var cell5 = row.insertCell(4);
+									cell1.innerHTML = tagData[i].ID;
+									cell2.innerHTML = tagData[i].X;
+									cell3.innerHTML = tagData[i].Y;
+									cell4.innerHTML = tagData[i].Z;
+									cell5.innerHTML = tagData[i].RackID;
+								}
+
+								overlay.style.display = 'block';
+								spreadsheet.style.display = 'block';	
+								spreadsheet.style.width = window.innerWidth + 'px';
+								spreadsheet.style.height = window.innerHeight + 'px';
+								
+							  }, 
+							  Search: "", 
+							  SkyColor: "#3b3d42", 
+							  RackColor: "#32496d", 
+							  Default: function(){ 
+								  scene.background = new THREE.Color( 0x3b3d42 );
+
+								  for(var i = 0; objects.length; i++)
+								  {
+									  objects[i].material.color.set(0x32496d);
+								  }
+								}};
+
+				// SCENE //
+				scene = new THREE.Scene();
+
+				// CAMERA //
+				var SCREEN_WIDTH = window.innerWidth, SCREEN_HEIGHT = window.innerHeight;
+				var VIEW_ANGLE = 45, ASPECT = SCREEN_WIDTH / SCREEN_HEIGHT, NEAR = 0.1, FAR = 20000;
+				camera = new THREE.PerspectiveCamera( VIEW_ANGLE, ASPECT, NEAR, FAR);
+				camera.position.set(0,150,400);
+				scene.add(camera);
+				// camera.lookAt(scene.position);	
+
+				// RENDERER // 
+				if ( Detector.webgl )
+					renderer = new THREE.WebGLRenderer( {antialias:true} );
+				else
+					renderer = new THREE.CanvasRenderer(); 
+				renderer.setSize(SCREEN_WIDTH, SCREEN_HEIGHT);
+				container = document.getElementById( 'ThreeJS' );
+				container.appendChild( renderer.domElement );
+				
+				// EVENTS //
+				THREEx.WindowResize(renderer, camera);
+				THREEx.FullScreen.bindKey({ charCode : 'm'.charCodeAt(0) });
+
+				// Ambient Lighting
+				scene.add( new THREE.AmbientLight( 0x444444 ) );
+
+				// LIGHT //
+				var lights  = new THREE.PointLight( 0xffffff, 1, 0 );
+				lights.position.set( 0, 300, 50 );
+				scene.add( lights);
+
+				// RACKDATA VARS
+				var minX = parseInt(rackData[0].x);
+				var maxX = parseInt(rackData[0].x);
+				var minZ = parseInt(rackData[0].z);
+				var maxZ = parseInt(rackData[0].z);
+
+				for (var i = 0; i < rackData.length; i++) {
+					var rack = rackData[i];
+					var x = parseInt(rack.x);
+					var z = parseInt(rack.z);
+					if (x < minX)
+						minX = x;
+					if (x > maxX)
+						maxX = x;
+					if (z < minZ)
+						minZ = z;
+					if (z > maxZ)
+						maxZ = z;
+				}
+
+				var centerX = (maxX +  minX) / 2;
+				var centerZ = (maxZ +  minZ) / 2;
+
+				// FLOOR //
+				var floorLen = (maxX - minX) + 200;
+				var floorWidth = (maxZ - minZ) + 200;
+				var floorTexture = new THREE.ImageUtils.loadTexture( 'image/woodFloor.jpg' );
+				floorTexture.wrapS = floorTexture.wrapT = THREE.RepeatWrapping; 
+				floorTexture.repeat.set( 10, 10 );
+				var floorMaterial = new THREE.MeshBasicMaterial( { map: floorTexture, side: THREE.DoubleSide } );
+				var floorGeometry = new THREE.PlaneGeometry(floorLen, floorWidth);
+				var floor = new THREE.Mesh(floorGeometry, floorMaterial);
+				floor.position.y = 0;
+				floor.rotation.x = Math.PI / 2;
+				scene.add(floor);
+				
+				// WALLS //
+					// geometry
+					var geometry = new THREE.BoxGeometry( floorLen, 200, 7 );
+					var geometry2 = new THREE.BoxGeometry( floorWidth, 200, 7 );
+					var geometry3 = new THREE.BoxGeometry( floorWidth, 7, floorLen);
+					
+					// material
+					var material = new THREE.MeshLambertMaterial( {
+						color: 0xe2e1d5
+					} );
+
+					var material = new THREE.MeshLambertMaterial( {
+						color: 0xe2e1d5
+					} );
+					
+					var material2 = new THREE.MeshLambertMaterial( {
+						color: 0xe2e1d5,
+						transparent: true,
+						opacity: 0.1
+					});
+
+					// callbacks
+					var onBeforeRender = function() {
+				
+						var v = new THREE.Vector3();
+				
+						return function onBeforeRender( renderer, scene, camera, geometry, material, group ) 
+						{
+							if ( v.subVectors( camera.position, this.position ).dot( this.userData.normal ) > 0 ) 
+							{
+								geometry.setDrawRange( 0, 0 );
+							}
+						};
+					}();
+					
+					var onAfterRender = function( renderer, scene, camera, geometry, material, group ) {
+						geometry.setDrawRange( 0, Infinity );
+					};
+
+					// mesh
+					mesh = new THREE.Mesh( geometry, material );
+					mesh.position.set( 0, 100, floorWidth / 2);
+					mesh.rotation.set( 0, 0, 0 );
+					scene.add( mesh );
+					mesh.userData.normal = mesh.position.clone().normalize();
+					mesh.onBeforeRender = onBeforeRender;
+					mesh.onAfterRender = onAfterRender;
+
+					// mesh
+					mesh = new THREE.Mesh( geometry, material );
+					mesh.position.set( 0, 100, - (floorWidth / 2) );
+					mesh.rotation.set( 0, 0, 0 );
+					scene.add( mesh );
+					mesh.userData.normal = mesh.position.clone().normalize();
+					mesh.onBeforeRender = onBeforeRender;
+					mesh.onAfterRender = onAfterRender;
+
+					// mesh
+					mesh = new THREE.Mesh( geometry2, material );
+					mesh.position.set( (floorLen / 2), 100, 0 );
+					mesh.rotation.set( 0, - Math.PI / 2, 0 );
+					scene.add( mesh );
+					mesh.userData.normal = mesh.position.clone().normalize();
+					mesh.onBeforeRender = onBeforeRender;
+					mesh.onAfterRender = onAfterRender;
+
+					// mesh
+					mesh = new THREE.Mesh( geometry2, material );
+					mesh.position.set( - (floorLen / 2), 100, 0 );
+					mesh.rotation.set( 0, Math.PI / 2, 0 );
+					scene.add( mesh );
+					mesh.userData.normal = mesh.position.clone().normalize();
+					mesh.onBeforeRender = onBeforeRender;
+					mesh.onAfterRender = onAfterRender;
+
+					// mesh
+					mesh = new THREE.Mesh( geometry3, material2 );
+					mesh.position.set( 0, 200, 0 );
+					mesh.rotation.set( 0, Math.PI / 2, 0 );
+					scene.add( mesh );
+					mesh.userData.normal = mesh.position.clone().normalize();
+				
+				// SKYBOX //
+				scene.background = new THREE.Color( 0x3b3d42 );
+
+				// CUBES //
+				var rackY = 50;
+				var cubeGeo = new THREE.BoxBufferGeometry( 75, 100, 50 );
+			  
+				for (var i = 0; i < rackData.length; i++)
+				{	
+					cube = new THREE.Mesh(cubeGeo,new THREE.MeshLambertMaterial( { color: 0x32496d, opacity: 0.5}) );
+					cube.name = "cube";
+
+					var rack = rackData[i];
+					var rackX = parseInt(rack.x);
+					var rackZ = parseInt(rack.z);
+
+					cube.position.set(rackX - centerX, rackY, rackZ - centerZ);
+					scene.add( cube );	
+					objects.push(cube);
+				}
+
+				// CONTROLS //
+				controls = new THREE.OrbitControls( camera, renderer.domElement );
+				controls.minDistance = minX;		
+				controls.maxDistance = maxX ;
+				controls.maxPolarAngle = Math.PI / 2;
+				
+				// GUI //
+				gui = new dat.GUI({ autoPlace: false });
+				gui.domElement.style.position = 'absolute';
+				gui.domElement.style.top = '0px';
+				gui.domElement.style.right = '0px';
+				container.appendChild(gui.domElement);
+				gui.add(parameters,'Spreadsheet').name('Spreadsheet Form');
+				var skyColor = gui.addColor(parameters, 'SkyColor').name('Sky Color').listen();
+				var rackColor = gui.addColor(parameters, 'RackColor').name('Rack Color').listen();
+				gui.add(parameters,'Default').name('Default Colors');
+				var server = gui.add(parameters, 'Search').name('Search').listen();
+				
+					
+				server.onChange(function(value) 
+				{
+					searchForServer(value); 
+				});
+
+				skyColor.onChange(function(value) 
+				{
+					changeSkyBoxColor(value); 
+				});
+
+				rackColor.onChange(function(value) 
+				{
+					changeRackColor(value); 
+				});
+
+				// RAYCASTER & MOUSE //
+				raycaster = new THREE.Raycaster();
+				mouse = new THREE.Vector2();
+
+				// when the mouse moves, call the given function
+				document.addEventListener( 'mousedown', onDocumentMouseDown, false );
+				document.addEventListener( 'mousemove', onDocumentMouseMove, false );
+		
+			}
+
+			function changeRackColor(value)
+			{
+				for(var i = 0; objects.length; i++)
+				{
+					objects[i].material.color.set(value);
+				}
+			}
+
+			function changeSkyBoxColor(value)
+			{
+				scene.background = new THREE.Color(value);
+			}
+
+			var pastObject = objects[0];
+
+			function searchForServer(value)
+			{
+				if( value == "UT" || value == "ut")
+				{
+					scene.background = new THREE.ImageUtils.loadTexture( "image/Texas Hook 'em.png" );
+
+					for(var i = 0; objects.length; i++)
+					{
+						objects[i].material.color.set(0xBF5700);
+					}
+				}
+
+				if( value == "default")
+				{
+					scene.background = new THREE.Color( 0x3b3d42 );
+
+					for(var i = 0; objects.length; i++)
+					{
+						objects[i].material.color.set(0x32496d);
+					}
+				}
+
+				assetID = value;
+				rackNum = -1;
+				for (var i = 0; i < racks.length; i++) {
+					var rack = racks[i];
+					for (var j = 0; j < rack.length; j++) {
+						var otherID = rack[j];
+						if (assetID == otherID)
+							rackNum = i;
+					}
+				}
+
+				if(objects[rackNum] != null)
+				{
+					pastObject.material.emissive.setHex( pastObject.currentHex );
+					objects[rackNum].currentHex = objects[rackNum].material.emissive.getHex();
+					objects[rackNum].material.emissive.setHex( 0x66ff00 );
+					pastObject = objects[rackNum];
+				}
+				else {
+					pastObject.material.emissive.setHex( pastObject.currentHex );
+				}
+			}
+				
+			function onDocumentMouseMove( event ) 
+			{
+				event.preventDefault();
+
+				mouse.x = ( event.clientX / window.innerWidth ) * 2 - 1;
+				mouse.y = - ( event.clientY / window.innerHeight ) * 2 + 1;
+
+				// find intersections
+				raycaster.setFromCamera( mouse, camera );
+
+				var intersects = raycaster.intersectObjects( objects );
+
+				if ( intersects.length > 0 ) {
+
+					if ( intersects[0].object != INTERSECTED ) 
+					{
+						if ( INTERSECTED ) { INTERSECTED.material.emissive.setHex( INTERSECTED.currentHex );}
+
+						INTERSECTED = intersects[ 0 ].object;
+						INTERSECTED.currentHex = INTERSECTED.material.emissive.getHex();
+						INTERSECTED.material.emissive.setHex( 0xff0000 );
+					}
+				}
+				else 
+				{
+					if ( INTERSECTED ) INTERSECTED.material.emissive.setHex( INTERSECTED.currentHex );
+
+					INTERSECTED = null;
+				}
+			}
+
+			function onDocumentMouseDown( event ) 
+			{
+				var vector = new THREE.Vector3( mouse.x, mouse.y, 1 );
+				raycaster.setFromCamera( mouse, camera );
+
+				var intersects = raycaster.intersectObjects( objects );
+
+				if ( intersects.length > 0 ) 
+				{
+					var objIndex = objects.indexOf(intersects[0].object);	//TODO: Somehow should attach our own identifier to this
+					var rack = racks[objIndex];
+					var popupText =  "Server Rack " + objIndex + "<br> <br>" + "Top of Rack" + "<br>";
+					for (var i = 0; i < rack.length; i++) {
+						var assetID = rack[i];
+						popupText += "<tab>" + assetID + "<br>";
+					}
+					popupText += "Bottom of Rack";
+					document.getElementById("popupText").innerHTML = popupText;
+					overlay.style.display = 'block';
+					popup.style.display = 'block';	
+				}
+			}
+
+			function animate() 
+			{
+				requestAnimationFrame( animate );
+				
+				render();		
+				update();
+			}
+
+			function update()
+			{
+				// delta = change in time since last call (in seconds)
+				var delta = clock.getDelta(); 
+
+				controls.update();
+			}
+
+			function render() 
+			{
+				renderer.render( scene, camera );
+			}
+
+		</script>
+	</body>
+</html>
